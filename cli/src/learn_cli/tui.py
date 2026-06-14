@@ -36,6 +36,8 @@ _STYLE = Style.from_dict(
         "sel": "reverse",
         "dim": "#888888",
         "tag": "#5f8700",
+        "here": "#5f8700",
+        "scope": "#888888",
         "status": "#888888 italic",
         "keys": "#888888",
         "key": "bold #5fd7ff",
@@ -51,6 +53,8 @@ def run_find_tui() -> tuple[str, str] | None:
 
     client = httpx.AsyncClient(base_url=config.api_url(), timeout=httpx.Timeout(20.0))
     auth = {"token": token}
+    ctx = config.detect_context()
+    ctx_params = {"cwd": ctx["cwd"], "project": ctx["project"], "host": ctx["hostname"]}
     results: list[dict] = []
     selected = {"i": 0}
     status = {"msg": "type to search…"}
@@ -63,7 +67,7 @@ def run_find_tui() -> tuple[str, str] | None:
         for attempt in range(2):
             r = await client.get(
                 path,
-                params={"q": query, "limit": limit},
+                params={"q": query, "limit": limit, **ctx_params},
                 headers={"authorization": f"Bearer {auth['token']}"},
             )
             if r.status_code == 401 and attempt == 0 and await _refresh():
@@ -144,6 +148,18 @@ def run_find_tui() -> tuple[str, str] | None:
 
     VISIBLE = 8  # results shown at once; the list scrolls to keep selection in view
 
+    def scope_label(r: dict) -> tuple[str, str]:
+        """(style, text) showing where a command is relative to current context."""
+        scope = r.get("scope")
+        if scope == "cwd":
+            return ("class:here", "● here")
+        if scope == "project":
+            return ("class:here", f"● {r.get('project') or 'this project'}")
+        if scope == "host":
+            return ("class:scope", "● this machine")
+        where = r.get("project") or r.get("hostname") or "elsewhere"
+        return ("class:scope", f"· {where}")
+
     def render():
         if not results:
             return [("class:dim", "  (no matches yet)")]
@@ -159,8 +175,10 @@ def run_find_tui() -> tuple[str, str] | None:
             cur = "class:sel" if i == sel else ""
             arrow = "❯ " if i == sel else "  "
             out.append((cur, f"{arrow}{r['command']}"))
+            sc_style, sc_text = scope_label(r)
+            out.append((sc_style, f"  {sc_text}"))
             if r.get("_src") == "semantic":
-                out.append(("class:tag", "  ~semantic"))
+                out.append(("class:tag", " ~semantic"))
             out.append(("", "\n"))
             if r.get("intent"):
                 out.append(("class:dim", f"    {r['intent']}\n"))
