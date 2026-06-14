@@ -61,3 +61,42 @@ def command_signature(command: str) -> str:
 
     subcmds = positionals[:1] if (prog in _MULTIPLEXERS and positionals) else []
     return " ".join([prog, *subcmds, *sorted(set(flags))])
+
+
+def _split(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
+
+
+# Token kinds used by `learn practice` to build the fill-in skeleton + matching.
+PROGRAM = "program"
+SUBCOMMAND = "subcommand"
+FLAG = "flag"
+OPERAND = "operand"
+
+
+def classify_tokens(command: str) -> list[tuple[str, str]]:
+    """Return [(token, kind)] for a command. Mirrors command_signature's rules:
+    program first, one subcommand for known multiplexers, flags, operands."""
+    toks = _split(command)
+    while toks and toks[0] in _SKIP_PREFIXES:
+        toks = toks[1:]
+    if not toks:
+        return []
+
+    out: list[tuple[str, str]] = [(toks[0], PROGRAM)]
+    is_mux = toks[0] in _MULTIPLEXERS
+    seen_flag = False
+    took_sub = False
+    for t in toks[1:]:
+        if t.startswith("-") and t != "-":
+            out.append((t, FLAG))
+            seen_flag = True
+        elif not seen_flag and is_mux and not took_sub:
+            out.append((t, SUBCOMMAND))
+            took_sub = True
+        else:
+            out.append((t, OPERAND))
+    return out

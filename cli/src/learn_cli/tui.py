@@ -4,7 +4,11 @@ Two-phase search:
   - substring/prefix matches (fast SQL ILIKE) on a short debounce, per keystroke
   - semantic matches (embeddings) on a longer debounce, appended
 
-Up/Down to move, Enter to pick (prints the command), Ctrl-C/Esc to cancel.
+Keys: Up/Down move · Enter copies the command · Tab opens `practice` on it ·
+Esc/Ctrl-C cancels. (Plain letters go to the query, so the secondary action is
+Tab, not a letter.)
+
+Returns an (action, command) tuple: action is "copy" or "practice".
 """
 
 from __future__ import annotations
@@ -33,12 +37,14 @@ _STYLE = Style.from_dict(
         "dim": "#888888",
         "tag": "#5f8700",
         "status": "#888888 italic",
+        "keys": "#888888",
+        "key": "bold #5fd7ff",
     }
 )
 
 
-def run_find_tui() -> str | None:
-    """Run the search UI. Returns the chosen command string, or None."""
+def run_find_tui() -> tuple[str, str] | None:
+    """Run the search UI. Returns (action, command) or None if cancelled."""
     token = config.access_token()
     if not token:
         raise SystemExit("not logged in — run `learn login` first")
@@ -48,7 +54,7 @@ def run_find_tui() -> str | None:
     results: list[dict] = []
     selected = {"i": 0}
     status = {"msg": "type to search…"}
-    chosen: dict = {"cmd": None}
+    chosen: dict = {"action": None, "cmd": None}
     pending: dict[str, asyncio.Task] = {}
 
     input_buffer = Buffer(multiline=False)
@@ -151,6 +157,15 @@ def run_find_tui() -> str | None:
                 out.append(("class:dim", f"    {r['intent']}\n"))
         return out
 
+    def footer():
+        return [
+            ("class:keys", " "),
+            ("class:key", "↑↓"), ("class:keys", " move   "),
+            ("class:key", "⏎"), ("class:keys", " copy   "),
+            ("class:key", "Tab"), ("class:keys", " practice   "),
+            ("class:key", "esc"), ("class:keys", " cancel"),
+        ]
+
     kb = KeyBindings()
 
     @kb.add("up")
@@ -168,6 +183,14 @@ def run_find_tui() -> str | None:
     @kb.add("enter")
     def _(event):
         if results:
+            chosen["action"] = "copy"
+            chosen["cmd"] = results[selected["i"]]["command"]
+        event.app.exit()
+
+    @kb.add("tab")
+    def _(event):
+        if results:
+            chosen["action"] = "practice"
             chosen["cmd"] = results[selected["i"]]["command"]
         event.app.exit()
 
@@ -191,10 +214,8 @@ def run_find_tui() -> str | None:
             ),
             Window(height=1, char="─", style="class:dim"),
             Window(FormattedTextControl(render), height=Dimension(min=1, max=14)),
-            Window(
-                FormattedTextControl(lambda: [("class:status", " " + status["msg"])]),
-                height=1,
-            ),
+            Window(FormattedTextControl(lambda: [("class:status", " " + status["msg"])]), height=1),
+            Window(FormattedTextControl(footer), height=1),
         ]
     )
 
@@ -214,4 +235,6 @@ def run_find_tui() -> str | None:
         except Exception:
             pass
 
-    return chosen["cmd"]
+    if chosen["action"] and chosen["cmd"]:
+        return (chosen["action"], chosen["cmd"])
+    return None

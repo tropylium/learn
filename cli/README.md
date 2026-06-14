@@ -28,7 +28,8 @@ The CLI talks to `http://localhost:3000` by default — override with
 |---|---|
 | `learn login` | Sign in via a one-time code emailed to you. |
 | `learn log [cmd]` | Log a command. No argument → your last shell command; `-n 5` → last 5. |
-| `learn find` | Interactive search of your history (substring + semantic). |
+| `learn find` | Interactive search. **Enter** copies · **Tab** practices · **Esc** cancels. |
+| `learn practice [cmd]` | Reconstruct a command from a guided template, learning each part. |
 | `learn here` | Commands you've logged in the current project. |
 | `learn score` | How many commands you've logged, per skill and total. |
 | `learn shell-init` | Print shell integration (installer adds this automatically). |
@@ -89,9 +90,18 @@ from shell integration (see below); `learn log "<cmd>"` logs an explicit one.
 **`learn find`** is an interactive TUI with two-phase search: instant substring/
 prefix matches per keystroke (`/api/search`, ILIKE + trigram index), then
 debounced **semantic** matches (`/api/find` → embed the query → `match_commands`
-pgvector cosine search over *your* history). Up/Down to move, Enter to pick
-(prints the command), Esc/Ctrl-C to cancel. This is why "pull a file from an old
-commit" can surface a `git checkout <sha> -- <file>` you ran weeks ago.
+pgvector cosine search over *your* history). Up/Down move; **Enter** copies the
+command to your clipboard; **Tab** opens `practice` on it; **Esc** cancels. This
+is why "pull a file from an old commit" can surface a `git checkout <sha> -- <file>`
+you ran weeks ago.
+
+**`learn practice`** (guided fill-in) helps you *learn* a command, not just
+recall it. It shows the goal and a skeleton with the program visible and the rest
+masked; as you type, correct parts fill in and each one's explanation appears.
+Flags can be in any order and argument values are free — the structure is what
+you're learning. Explanations come from a single cached call to `/api/explain`
+(per-token breakdown, fired once when practice opens, stored on the command row),
+so typing is instant with no per-keystroke API calls.
 
 **`learn score` / `learn here`** — read-only aggregations: `score` counts uses
 per skill (`skill_counts` RPC); `here` lists commands stored for your current

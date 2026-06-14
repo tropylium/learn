@@ -209,18 +209,77 @@ def _print_logged(cmd_str: str, data: dict) -> None:
 
 @cli.command("find")
 def find_cmd() -> None:
-    """Interactively search your history — substring matches as you type, then
-    semantic matches. Up/Down to move, Enter to pick, Esc to cancel."""
+    """Interactively search your history.
+
+    Type to filter (substring as you type, then semantic). Then:
+    Enter copies the command · Tab opens `practice` on it · Esc cancels."""
     from .tui import run_find_tui
 
     try:
-        chosen = run_find_tui()
+        result = run_find_tui()
     except SystemExit as e:
         _die(str(e))
     except Exception as e:  # e.g. no TTY available
         _die(f"interactive find unavailable ({e}). Are you in a terminal?")
-    if chosen:
-        click.echo(chosen)
+    if not result:
+        return
+    action, cmd = result
+    if action == "copy":
+        _copy_to_clipboard(cmd)
+    elif action == "practice":
+        _run_practice(cmd)
+
+
+def _copy_to_clipboard(cmd: str) -> None:
+    from . import clipboard
+
+    if clipboard.copy(cmd):
+        click.secho(f"✓ copied: {cmd}", fg="green")
+    else:
+        click.secho("(couldn't access clipboard) " + cmd, fg="yellow")
+
+
+def _run_practice(cmd: str) -> None:
+    """Fetch the breakdown (one cached LLM call), then run the practice TUI."""
+    from .practice_tui import run_practice_tui
+    from .signature import classify_tokens
+
+    target = classify_tokens(cmd)
+    if not target:
+        _die("nothing to practice")
+    tokens = [t for t, _ in target]
+
+    click.echo("preparing practice…", nl=False)
+    data = _authed_request("POST", "/api/explain",
+                           json={"command": cmd, "tokens": tokens}).json()
+    click.echo("\r" + " " * 20 + "\r", nl=False)  # clear the line
+
+    explanations = data.get("parts") or [""] * len(tokens)
+    if len(explanations) != len(tokens):  # be defensive about alignment
+        explanations = (explanations + [""] * len(tokens))[: len(tokens)]
+    intent = data.get("intent", "")
+
+    try:
+        completed = run_practice_tui(cmd, target, explanations, intent)
+    except Exception as e:
+        _die(f"interactive practice unavailable ({e}). Are you in a terminal?")
+    if completed:
+        _copy_to_clipboard(completed)
+        click.secho("nice — practiced ✓", fg="green")
+
+
+@cli.command("practice")
+@click.argument("command", nargs=-1, required=True)
+def practice_cmd(command: tuple[str, ...]) -> None:
+    """Practice typing a command from a guided template, learning each part.
+
+    \b
+      learn practice "grep -rEn 'TODO' --include='*.py' ."
+    (Also reachable by pressing Tab on a result in `learn find`.)"""
+    cmd = " ".join(command).strip()
+    if not cmd:
+        _die("empty command")
+    _run_practice(cmd)
 
 
 @cli.command("here")
