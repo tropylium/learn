@@ -29,6 +29,7 @@ The CLI talks to `http://localhost:3000` by default — override with
 | `learn login` | Sign in via a one-time code emailed to you. |
 | `learn log [cmd]` | Log a command. No argument → your last shell command; `-n 5` → last 5. |
 | `learn find` | Interactive search. **Enter** copies · **Tab** practices · **Esc** cancels. |
+| `learn new "<goal>"` | Describe a goal in plain English → pick a suggested command → practice it. |
 | `learn practice [cmd]` | Reconstruct a command from a guided template, learning each part. |
 | `learn here` | Commands you've logged in the current project. |
 | `learn score` | How many commands you've logged, per skill and total. |

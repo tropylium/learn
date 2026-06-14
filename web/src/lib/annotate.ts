@@ -73,6 +73,64 @@ export async function embed(text: string): Promise<number[]> {
   return res.data[0].embedding;
 }
 
+export interface Suggestion {
+  command: string; // a concrete, runnable command
+  description: string; // one line: what it does / when to use it
+}
+
+// `learn new`: given a natural-language goal, suggest several correct shell
+// commands that accomplish it (varied approaches), each with a short blurb.
+export async function suggestCommands(motivation: string): Promise<Suggestion[]> {
+  const client = new Anthropic({ apiKey: env.anthropicKey() });
+
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      suggestions: {
+        type: "array",
+        description: "3-5 distinct, correct, runnable shell commands for the goal.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            command: {
+              type: "string",
+              description:
+                "A concrete, runnable command (use realistic placeholders where needed).",
+            },
+            description: {
+              type: "string",
+              description: "One short line: what it does / when to prefer it.",
+            },
+          },
+          required: ["command", "description"],
+        },
+      },
+    },
+    required: ["suggestions"],
+  } as const;
+
+  const response = await client.messages.create({
+    model: ANNOTATION_MODEL,
+    max_tokens: 1024,
+    system:
+      "You suggest terminal commands to help a developer learn. Given a goal, " +
+      "return 3-5 distinct, correct, idiomatic commands that accomplish it, " +
+      "favoring common tools. Prefer variety (different tools/approaches). " +
+      "Keep descriptions to one short line.",
+    output_config: { format: { type: "json_schema", schema } },
+    messages: [{ role: "user", content: `Goal:\n${motivation}` }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("suggest returned no text content");
+  }
+  const parsed = JSON.parse(textBlock.text) as { suggestions: Suggestion[] };
+  return (parsed.suggestions ?? []).filter((s) => s.command?.trim());
+}
+
 // Per-token breakdown for `learn practice`. Given a command and its tokens (the
 // CLI's own tokenization, so alignment is exact), return one short explanation
 // per token, in the same order. Used to reveal explanations as the user types.

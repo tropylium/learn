@@ -239,8 +239,11 @@ def _copy_to_clipboard(cmd: str) -> None:
         click.secho("(couldn't access clipboard) " + cmd, fg="yellow")
 
 
-def _run_practice(cmd: str) -> None:
-    """Fetch the breakdown (one cached LLM call), then run the practice TUI."""
+def _run_practice(cmd: str, intent: str | None = None) -> None:
+    """Fetch the breakdown (one cached LLM call), then run the practice TUI.
+
+    `intent` overrides the goal shown (used by `learn new`, where the goal is the
+    user's own motivation rather than the stored command intent)."""
     from .practice_tui import run_practice_tui
     from .signature import classify_tokens
 
@@ -257,15 +260,46 @@ def _run_practice(cmd: str) -> None:
     explanations = data.get("parts") or [""] * len(tokens)
     if len(explanations) != len(tokens):  # be defensive about alignment
         explanations = (explanations + [""] * len(tokens))[: len(tokens)]
-    intent = data.get("intent", "")
+    goal = intent or data.get("intent", "")
 
     try:
-        completed = run_practice_tui(cmd, target, explanations, intent)
+        completed = run_practice_tui(cmd, target, explanations, goal)
     except Exception as e:
         _die(f"interactive practice unavailable ({e}). Are you in a terminal?")
     if completed:
         _copy_to_clipboard(completed)
         click.secho("nice — practiced ✓", fg="green")
+
+
+@cli.command("new")
+@click.argument("motivation", nargs=-1, required=True)
+def new_cmd(motivation: tuple[str, ...]) -> None:
+    """Describe what you want to do; pick from suggested commands, then practice.
+
+    \b
+      learn new "find the largest files in a directory"
+    Select a suggestion to jump into practice (Esc there if you don't want to)."""
+    goal = " ".join(motivation).strip()
+    if not goal:
+        _die("describe what you want to do")
+
+    click.echo("thinking…", nl=False)
+    data = _authed_request("POST", "/api/suggest", json={"motivation": goal}).json()
+    click.echo("\r" + " " * 20 + "\r", nl=False)
+
+    suggestions = data.get("suggestions") or []
+    if not suggestions:
+        _die("no suggestions came back — try rephrasing")
+
+    from .picker_tui import run_picker
+
+    try:
+        picked = run_picker(f"For: {goal}", suggestions)
+    except Exception as e:
+        _die(f"interactive picker unavailable ({e}). Are you in a terminal?")
+    if not picked:
+        return
+    _run_practice(picked["command"], intent=picked.get("description") or goal)
 
 
 @cli.command("practice")
