@@ -40,6 +40,11 @@ def _history_file() -> Path | None:
     return None
 
 
+def integration_active() -> bool:
+    """True if shell integration populated this session's history."""
+    return os.environ.get("LEARN_SESSION_HISTORY") is not None
+
+
 def _filter(cmds: list[str], n: int) -> list[str]:
     out = [c for c in (x.strip() for x in cmds) if c and not _OWN.match(c)]
     return out[-n:] if n > 0 else []

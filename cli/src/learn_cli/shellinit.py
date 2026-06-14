@@ -17,6 +17,12 @@ Installed automatically by the installer (a guarded block in your rc that runs
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+# Delimiters of the block the installer adds to the user's rc. Must stay in sync
+# with web/public/install.sh so `learn uninstall` can strip the exact block.
+RC_MARKER_START = "# >>> learn shell integration >>>"
+RC_MARKER_END = "# <<< learn shell integration <<<"
 
 _ZSH = r"""
 # learn shell integration (zsh)
@@ -78,3 +84,48 @@ def render(name: str | None = None) -> str:
     if shell == "zsh":
         return _ZSH.strip()
     raise ValueError(f"unsupported shell: {shell} (supported: zsh, bash)")
+
+
+def _rc_candidates() -> list[Path]:
+    home = Path.home()
+    zdot = os.environ.get("ZDOTDIR")
+    paths = [home / ".zshrc", home / ".bashrc"]
+    if zdot:
+        paths.insert(0, Path(zdot) / ".zshrc")
+    return paths
+
+
+def remove_from_rc() -> list[Path]:
+    """Strip the guarded shell-integration block from known rc files.
+
+    Returns the list of files actually modified.
+    """
+    modified: list[Path] = []
+    for rc in _rc_candidates():
+        if not rc.exists():
+            continue
+        try:
+            lines = rc.read_text().splitlines()
+        except OSError:
+            continue
+        if not any(RC_MARKER_START in ln for ln in lines):
+            continue
+
+        out: list[str] = []
+        skipping = False
+        for ln in lines:
+            if RC_MARKER_START in ln:
+                skipping = True
+                # drop a single blank line that precedes the block, if any
+                if out and out[-1].strip() == "":
+                    out.pop()
+                continue
+            if RC_MARKER_END in ln:
+                skipping = False
+                continue
+            if not skipping:
+                out.append(ln)
+
+        rc.write_text("\n".join(out) + ("\n" if out else ""))
+        modified.append(rc)
+    return modified

@@ -165,10 +165,18 @@ def log_cmd(command: tuple[str, ...], num: int, exit_code: int,
     if command:
         cmds = [" ".join(command).strip()]
     else:
+        if not shell.integration_active():
+            click.secho(
+                "shell integration not active in this session — falling back to the "
+                "global history file, which may capture the wrong command.\n"
+                "  Open a new terminal or run `source ~/.zshrc` to activate it, "
+                'or pass an explicit `learn log "<cmd>"`.',
+                fg="yellow", err=True,
+            )
         cmds = shell.recent_commands(num)
         if not cmds:
-            _die('no recent shell commands found (history may not be flushed; '
-                 'try `learn log "<cmd>"`)')
+            _die('no recent shell commands found. Activate shell integration '
+                 '(new terminal / `source ~/.zshrc`) or run `learn log "<cmd>"`.')
 
     ctx = config.detect_context()
     if project:
@@ -257,6 +265,55 @@ def shell_init_cmd(shell_name: str | None) -> None:
         click.echo(render(shell_name))
     except ValueError as e:
         _die(str(e))
+
+
+@cli.command("uninstall")
+@click.option("--keep-config", is_flag=True,
+              help="Keep ~/.config/learn (login + settings).")
+@click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
+def uninstall_cmd(keep_config: bool, yes: bool) -> None:
+    """Remove learn: shell integration, config, and the installed CLI."""
+    import shutil
+    import subprocess
+    from . import shellinit
+
+    if not yes:
+        click.echo("This will remove:")
+        click.echo("  • shell integration from your rc file(s)")
+        if not keep_config:
+            click.echo(f"  • {config.CONFIG_DIR} (login + settings)")
+        click.echo("  • the installed `learn` CLI (uv tool)")
+        if not click.confirm("Proceed?", default=False):
+            click.echo("aborted.")
+            return
+
+    # 1. shell integration block(s)
+    removed = shellinit.remove_from_rc()
+    if removed:
+        for rc in removed:
+            click.secho(f"✓ removed shell integration from {rc}", fg="green")
+    else:
+        click.echo("• no shell integration found in rc files")
+
+    # 2. config + credentials
+    if keep_config:
+        click.echo(f"• keeping {config.CONFIG_DIR}")
+    elif config.CONFIG_DIR.exists():
+        shutil.rmtree(config.CONFIG_DIR, ignore_errors=True)
+        click.secho(f"✓ removed {config.CONFIG_DIR}", fg="green")
+
+    # 3. the installed binary (best effort; no-op for dev `uv run` usage)
+    if shutil.which("uv"):
+        r = subprocess.run(["uv", "tool", "uninstall", "learn"],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            click.secho("✓ uninstalled the learn CLI (uv tool)", fg="green")
+        else:
+            click.echo("• learn was not installed as a uv tool (nothing to remove there)")
+
+    click.echo()
+    click.secho("Done. Restart your terminal (or `source` your rc) for changes "
+                "to fully take effect.", fg="yellow")
 
 
 @cli.command("config")
