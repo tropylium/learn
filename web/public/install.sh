@@ -1,0 +1,61 @@
+#!/bin/sh
+# learn — installer
+#
+#   curl -LsSf https://learn-one-lac.vercel.app/install.sh | sh
+#
+# No magic — read it top to bottom. This script:
+#   1. ensures `uv` is installed            (https://astral.sh/uv)
+#   2. installs the `learn` CLI from the public repo, isolated, onto your PATH:
+#        uv tool install git+https://github.com/tropylium/learn#subdirectory=cli
+#   3. writes ~/.config/learn/config.json pointing at the API
+#
+# Overrides (optional):
+#   LEARN_API_URL     API base URL          (default below)
+#   LEARN_REF         git branch/tag to install (default: main)
+#   LEARN_CONFIG_DIR  config dir            (default: ~/.config/learn)
+set -eu
+
+API_URL="${LEARN_API_URL:-https://learn-one-lac.vercel.app}"
+REPO="https://github.com/tropylium/learn"
+REF="${LEARN_REF:-main}"
+CONFIG_DIR="${LEARN_CONFIG_DIR:-$HOME/.config/learn}"
+
+info() { printf '\033[1;36m=>\033[0m %s\n' "$1"; }
+warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$1" >&2; }
+err()  { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; exit 1; }
+
+command -v curl >/dev/null 2>&1 || err "curl is required."
+command -v git  >/dev/null 2>&1 || err "git is required (uv installs the CLI from a git repo)."
+
+# 1. ensure uv
+if ! command -v uv >/dev/null 2>&1; then
+  info "Installing uv (https://astral.sh/uv) …"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env" || true
+  export PATH="$HOME/.local/bin:$PATH"
+  command -v uv >/dev/null 2>&1 || err "uv install failed; see https://docs.astral.sh/uv/"
+fi
+
+# 2. install the learn CLI from the public repo (isolated env, placed on PATH)
+info "Installing the 'learn' CLI from $REPO (@$REF) …"
+uv tool install --force "git+$REPO@$REF#subdirectory=cli"
+uv tool update-shell >/dev/null 2>&1 || true
+
+# 3. point the CLI at the API
+mkdir -p "$CONFIG_DIR"
+cat > "$CONFIG_DIR/config.json" <<EOF
+{
+  "api_url": "$API_URL"
+}
+EOF
+info "API URL set to $API_URL  ($CONFIG_DIR/config.json)"
+
+echo
+info "Done — 'learn' is installed."
+command -v learn >/dev/null 2>&1 || warn "Open a new terminal so 'learn' is on your PATH."
+echo
+echo "  Try:"
+echo "    learn login"
+echo "    learn log \"git rebase -i HEAD~3\""
+echo "    learn find \"rewrite my last few commits\""
+echo

@@ -12,10 +12,20 @@ end-to-end, with **email-OTP auth** and per-user rows behind Supabase RLS. See
 
 ```
 web/             Next.js app + API routes (AI proxy, auth, Supabase writer)
+                 web/public/install.sh — the served `curl | sh` installer
 cli/             Python CLI (login, log, find, here, score)
 supabase/        schema.sql (fresh DB) · auth.sql (migrate an existing DB)
-scripts/ dist/   build-installer.sh -> self-contained dist/install.sh
 ```
+
+## Install (end users)
+
+```sh
+curl -LsSf https://learn-one-lac.vercel.app/install.sh | sh
+```
+
+The installer is a short, readable script ([web/public/install.sh](web/public/install.sh)):
+it ensures `uv`, then `uv tool install`s the CLI from this public repo and writes
+`~/.config/learn/config.json`. No bundled blobs — audit it before piping to `sh`.
 
 ## Setup
 
@@ -74,9 +84,9 @@ Notes:
 
 ## Next milestones
 
-- Installer hosting: serve `dist/install.sh` from the web app (`curl … | sh`).
 - Shell hook (`eval "$(learn shell-init)"`) for auto-logging + contextual reminders.
 - Stripe Pro tier.
 - (Deprioritized) Frontend dashboard — the CLI is the product.
 
-Done: core log/find/here/score loop · Vercel deploy · email-OTP auth + RLS.
+Done: core log/find/here/score loop · Vercel deploy · email-OTP auth + RLS ·
+hosted `curl | sh` installer + landing page.
