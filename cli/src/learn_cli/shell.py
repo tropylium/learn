@@ -1,10 +1,12 @@
-"""Read recent commands from the user's shell history (zero-setup logging).
+"""Read recent commands run in the current shell session.
 
-Caveat: shells don't always flush history immediately. zsh with
-SHARE_HISTORY / INC_APPEND_HISTORY (oh-my-zsh default) and bash with
-PROMPT_COMMAND='history -a' write as you go; otherwise the most recent command
-may not be on disk until the shell exits. The shell hook (later milestone)
-removes this limitation.
+Preferred source: the LEARN_SESSION_HISTORY env var, populated by the shell
+integration (`learn shell-init`). It holds this session's commands, newline-
+separated — accurate and session-scoped.
+
+Fallback (no shell integration): the history *file* (~/.zsh_history etc). This
+is unreliable — it's global across all sessions, not scoped to this terminal,
+and may not be flushed yet. Install shell integration for correct behavior.
 """
 
 from __future__ import annotations
@@ -38,8 +40,23 @@ def _history_file() -> Path | None:
     return None
 
 
+def _filter(cmds: list[str], n: int) -> list[str]:
+    out = [c for c in (x.strip() for x in cmds) if c and not _OWN.match(c)]
+    return out[-n:] if n > 0 else []
+
+
 def recent_commands(n: int) -> list[str]:
-    """Return the last `n` distinct-from-`learn` commands, oldest→newest."""
+    """Return the last `n` non-`learn` commands from this session, oldest→newest.
+
+    Uses LEARN_SESSION_HISTORY (from shell integration) when present — even if
+    empty, that means shell integration is active and there's simply no history
+    yet, so we do NOT fall back to the global file. Only when the var is unset
+    do we read the (unreliable) history file.
+    """
+    env_hist = os.environ.get("LEARN_SESSION_HISTORY")
+    if env_hist is not None:
+        return _filter(env_hist.splitlines(), n)
+
     f = _history_file()
     if not f:
         return []
@@ -47,10 +64,4 @@ def recent_commands(n: int) -> list[str]:
         lines = f.read_text(errors="replace").splitlines()
     except OSError:
         return []
-
-    cmds: list[str] = []
-    for line in lines:
-        cmd = _ZSH_PREFIX.sub("", line).strip()
-        if cmd and not _OWN.match(cmd):
-            cmds.append(cmd)
-    return cmds[-n:] if n > 0 else []
+    return _filter([_ZSH_PREFIX.sub("", line) for line in lines], n)

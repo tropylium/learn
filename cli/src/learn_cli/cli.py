@@ -244,6 +244,21 @@ def score_cmd() -> None:
         click.echo(f"  {s['skill']:<24} {s['uses']:>5}×")
 
 
+@cli.command("shell-init")
+@click.option("--shell", "shell_name", default=None,
+              help="Target shell: zsh or bash (auto-detected from $SHELL).")
+def shell_init_cmd(shell_name: str | None) -> None:
+    """Print shell integration. Add `eval "$(learn shell-init)"` to your rc
+    (the installer does this automatically) so `learn log` can capture the
+    current session's last command."""
+    from .shellinit import render
+
+    try:
+        click.echo(render(shell_name))
+    except ValueError as e:
+        _die(str(e))
+
+
 @cli.command("config")
 @click.option("--api-url", "api_url_opt", default=None, help="Set the API base URL.")
 @click.option("--show", is_flag=True, help="Show current config.")

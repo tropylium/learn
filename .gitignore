@@ -13,5 +13,9 @@ __pycache__/
 .env
 .env.local
 
+# Supabase CLI local cache
+supabase/.temp/
+supabase/.branches/
+
 # OS
 .DS_Store
