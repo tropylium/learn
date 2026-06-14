@@ -239,11 +239,15 @@ def _copy_to_clipboard(cmd: str) -> None:
         click.secho("(couldn't access clipboard) " + cmd, fg="yellow")
 
 
-def _run_practice(cmd: str, intent: str | None = None) -> None:
+def _run_practice(cmd: str, intent: str | None = None,
+                  log_on_complete: bool = False) -> None:
     """Fetch the breakdown (one cached LLM call), then run the practice TUI.
 
     `intent` overrides the goal shown (used by `learn new`, where the goal is the
-    user's own motivation rather than the stored command intent)."""
+    user's own motivation rather than the stored command intent).
+    `log_on_complete` saves the command to history on success — set for `learn
+    new` so freshly-discovered commands become findable (recall/skills); other
+    practice paths operate on already-known commands and stay copy-only."""
     from .practice_tui import run_practice_tui
     from .signature import classify_tokens
 
@@ -266,8 +270,19 @@ def _run_practice(cmd: str, intent: str | None = None) -> None:
         completed = run_practice_tui(cmd, target, explanations, goal)
     except Exception as e:
         _die(f"interactive practice unavailable ({e}). Are you in a terminal?")
-    if completed:
-        _copy_to_clipboard(completed)
+    if not completed:
+        return
+    _copy_to_clipboard(completed)
+    if log_on_complete:
+        ctx = config.detect_context()
+        payload = {"command": completed, "signature": command_signature(completed),
+                   "exit_code": 0, **ctx}
+        try:
+            _authed_request("POST", "/api/log", json=payload)
+            click.secho("nice — practiced & saved to your history ✓", fg="green")
+        except SystemExit:
+            click.secho("practiced ✓ (couldn't save to history)", fg="yellow")
+    else:
         click.secho("nice — practiced ✓", fg="green")
 
 
@@ -299,7 +314,8 @@ def new_cmd(motivation: tuple[str, ...]) -> None:
         _die(f"interactive picker unavailable ({e}). Are you in a terminal?")
     if not picked:
         return
-    _run_practice(picked["command"], intent=picked.get("description") or goal)
+    _run_practice(picked["command"], intent=picked.get("description") or goal,
+                  log_on_complete=True)
 
 
 @cli.command("practice")
