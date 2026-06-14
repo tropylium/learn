@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { annotateCommand, embed } from "@/lib/annotate";
 import { getUserId, unauthorized } from "@/lib/auth";
@@ -57,9 +57,10 @@ export async function POST(req: NextRequest) {
     // Refresh the displayed literal command to the latest invocation.
     await db.from("commands").update({ command }).eq("id", commandId);
   } else {
-    // New signature for this user: annotate + embed once, then store.
+    // New signature: annotate (needed for the response), but DEFER the embedding
+    // off the critical path — it's only used by semantic `find` later, so we
+    // insert the row now with a null embedding and backfill it via after().
     const annotation = await annotateCommand(command);
-    const embedding = await embed(`${annotation.intent}\n${command}`);
 
     const { data: inserted, error: insErr } = await db
       .from("commands")
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
         explanation: annotation.explanation,
         complexity: annotation.complexity,
         skills: annotation.skills,
-        embedding,
+        embedding: null,
         hostname: body.hostname,
         project: body.project,
         cwd: body.cwd,
@@ -84,6 +85,22 @@ export async function POST(req: NextRequest) {
     commandId = inserted.id;
     intent = annotation.intent;
     skills = annotation.skills;
+
+    // Embed + backfill after the response is sent (Vercel keeps the function
+    // alive for after() work). `find` ignores rows with a null embedding, so a
+    // brand-new command is simply un-searchable for the ~1s this takes.
+    const newCommandId = commandId;
+    after(async () => {
+      try {
+        const embedding = await embed(`${annotation.intent}\n${command}`);
+        await supabaseAdmin()
+          .from("commands")
+          .update({ embedding })
+          .eq("id", newCommandId);
+      } catch (e) {
+        console.error("deferred embedding failed for", newCommandId, e);
+      }
+    });
   }
 
   // Record this use (simple count-based model — no scoring weights).
