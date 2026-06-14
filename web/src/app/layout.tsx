@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "learn — teach yourself the terminal",
   description:
-    "A CLI that reinforces the commands you've actually used. AI annotates each command, scores your learning, and recalls commands semantically.",
+    "A CLI that reinforces the commands you've actually used. AI annotates each command and recalls commands semantically.",
 };
 
 export default function RootLayout({

@@ -2,9 +2,10 @@
 
 Core loop:
   learn log "<cmd>"        log a command -> API annotates + embeds + stores
-  learn find "<query>"     semantic recall of a command from your own history
+  learn new "<goal>"       suggest commands for a goal, then practice one
+  learn find               interactive recall of commands from your history
+  learn practice "<cmd>"   reconstruct a command from a guided template
   learn here               commands you've logged in this project/context
-  learn score              XP per skill + global
 
 Auth:
   learn login              email one-time-code sign-in
@@ -348,17 +349,6 @@ def here_cmd() -> None:
         click.secho(f"  • {res['command']}", fg="cyan")
         if res.get("intent"):
             click.echo(f"    {res['intent']}")
-
-
-@cli.command("score")
-def score_cmd() -> None:
-    """Show how many commands you've logged, per skill and total."""
-    data = _authed_request("GET", "/api/score").json()
-    total = data.get("total_uses", 0)
-    skills = data.get("skills", [])
-    click.secho(f"Commands logged: {total}", bold=True, fg="yellow")
-    for s in skills:
-        click.echo(f"  {s['skill']:<24} {s['uses']:>5}×")
 
 
 @cli.command("shell-init")

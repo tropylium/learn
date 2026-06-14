@@ -32,7 +32,6 @@ The CLI talks to `http://localhost:3000` by default — override with
 | `learn new "<goal>"` | Describe a goal in plain English → pick a suggested command → practice it. |
 | `learn practice [cmd]` | Reconstruct a command from a guided template, learning each part. |
 | `learn here` | Commands you've logged in the current project. |
-| `learn score` | How many commands you've logged, per skill and total. |
 | `learn shell-init` | Print shell integration (installer adds this automatically). |
 | `learn whoami` / `learn logout` | Show / clear the signed-in account. |
 | `learn config` | View or set local config (API URL). |
@@ -53,17 +52,11 @@ $ learn log
   intent: Recursively search Python files for a pattern, with line numbers
   skills: text-processing, grep
 
-# 3. Later, search your history interactively (type to filter, Enter to pick)
+# 3. Later, search your history interactively (type to filter, Enter to copy)
 $ learn find
 find ❯ search python
-❯ grep -rEn 'TODO' --include='*.py' .
+❯ grep -rEn 'TODO' --include='*.py' .   ● here
     Recursively search Python files for a pattern, with line numbers
-
-# 4. Check your progress
-$ learn score
-Commands logged: 1
-  text-processing              1×
-  grep                         1×
 ```
 
 ## What happens behind the scenes
@@ -104,9 +97,7 @@ you're learning. Explanations come from a single cached call to `/api/explain`
 (per-token breakdown, fired once when practice opens, stored on the command row),
 so typing is instant with no per-keystroke API calls.
 
-**`learn score` / `learn here`** — read-only aggregations: `score` counts uses
-per skill (`skill_counts` RPC); `here` lists commands stored for your current
-git project.
+**`learn here`** lists the commands stored for your current git project.
 
 ## Shell integration
 
