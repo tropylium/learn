@@ -36,6 +36,7 @@ delete from commands where id in (select id from ranked where rn > 1);
 
 -- 3. Re-key uniqueness from (user, command) to (user, signature).
 alter table commands drop constraint if exists commands_user_id_command_key;
+alter table commands drop constraint if exists commands_user_id_signature_key;
 alter table commands
   add constraint commands_user_id_signature_key unique (user_id, signature);
 

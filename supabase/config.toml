@@ -1,0 +1,8 @@
+# Supabase CLI project config. `project_id` is a local label; the actual remote
+# project is chosen by `supabase link --project-ref <ref>`.
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+project_id = "learn"
+
+[db]
+# Postgres major version of your Supabase project (16 is the current default).
+major_version = 16

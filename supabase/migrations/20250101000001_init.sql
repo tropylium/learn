@@ -1,23 +1,19 @@
--- learn — canonical schema (run in Supabase SQL editor for a fresh project).
--- For an existing vertical-slice database, run auth.sql instead to migrate.
--- user_id references auth.users; RLS is enabled at the bottom.
+-- learn — schema for the vertical slice (run in Supabase SQL editor).
+-- No auth yet: a hardcoded dev user id is used by the CLI. RLS is added in the
+-- auth milestone; for now the API uses the service-role key server-side only.
 
 create extension if not exists vector;
 create extension if not exists "pgcrypto";
-create extension if not exists pg_trgm;
 
--- One row per distinct (user, signature). A signature is the normalized command
--- (program + subcommand + flags, argument values dropped), computed by the CLI,
--- so `git commit -m "a"` and `git commit -m "b"` are one row used twice. The
--- stored `command` is the most recent literal invocation (for display/recall).
+-- One row per distinct (user, command). Re-running a logged command adds a
+-- command_uses row rather than a new commands row.
 create table if not exists commands (
   id            uuid primary key default gen_random_uuid(),
-  user_id       uuid not null references auth.users(id) on delete cascade,
-  command       text not null,         -- most recent literal invocation
-  signature     text not null,         -- normalized grouping key
+  user_id       uuid not null,
+  command       text not null,
   intent        text,                 -- AI: "Restore a file from a previous commit"
   explanation   text,                 -- AI: longer explanation
-  complexity    int,                  -- AI: 1-5 (display only; not scored)
+  complexity    int,                  -- AI: 1-5
   skills        text[] default '{}',  -- AI: ['git','history-surgery']
   embedding     vector(1536),         -- of intent (+command)
   hostname      text,
@@ -25,22 +21,20 @@ create table if not exists commands (
   cwd           text,
   first_used_at timestamptz default now(),
   created_at    timestamptz default now(),
-  unique (user_id, signature)
+  unique (user_id, command)
 );
 
 create table if not exists command_uses (
   id             uuid primary key default gen_random_uuid(),
   command_id     uuid not null references commands(id) on delete cascade,
-  user_id        uuid not null references auth.users(id) on delete cascade,
+  user_id        uuid not null,
   used_at        timestamptz default now(),
-  exit_code      int
+  exit_code      int,
+  points_awarded numeric default 0
 );
 
 create index if not exists commands_user_idx on commands(user_id);
 create index if not exists commands_project_idx on commands(user_id, project);
-create index if not exists commands_signature_idx on commands(user_id, signature);
-create index if not exists commands_command_trgm_idx
-  on commands using gin (command gin_trgm_ops);
 create index if not exists uses_command_idx on command_uses(command_id);
 
 -- Vector similarity index (cosine). ivfflat needs ANALYZE after data loads; for
@@ -74,33 +68,16 @@ as $$
   limit match_count;
 $$;
 
--- Uses per skill: explode skills[] and count uses (simple count-based scoring).
-create or replace function skill_counts(p_user_id uuid)
-returns table (skill text, uses bigint)
+-- XP per skill: explode skills[] and sum points across all uses.
+create or replace function skill_scores(p_user_id uuid)
+returns table (skill text, xp numeric)
 language sql stable
 as $$
-  select s.skill, count(*) as uses
+  select s.skill, sum(u.points_awarded) as xp
   from commands c
   join command_uses u on u.command_id = c.id
   cross join lateral unnest(coalesce(c.skills, '{}')) as s(skill)
   where c.user_id = p_user_id
   group by s.skill
-  order by uses desc;
+  order by xp desc;
 $$;
-
--- Row-level security. The API uses the service role (bypasses RLS) and scopes
--- every query by the JWT-verified user_id; these policies are defense in depth.
-alter table commands     enable row level security;
-alter table command_uses enable row level security;
-
-drop policy if exists "own commands" on commands;
-create policy "own commands" on commands
-  for all to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-drop policy if exists "own command_uses" on command_uses;
-create policy "own command_uses" on command_uses
-  for all to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);

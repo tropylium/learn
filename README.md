@@ -14,7 +14,7 @@ end-to-end, with **email-OTP auth** and per-user rows behind Supabase RLS. See
 web/             Next.js app + API routes (AI proxy, auth, Supabase writer)
                  web/public/install.sh — the served `curl | sh` installer
 cli/             Python CLI (login, log, find, here, score)
-supabase/        schema.sql (fresh DB) · auth.sql (migrate an existing DB)
+supabase/        config.toml + migrations/ (applied with `supabase db push`)
 ```
 
 ## Install (end users)
@@ -29,10 +29,21 @@ it ensures `uv`, then `uv tool install`s the CLI from this public repo and write
 
 ## Setup
 
-1. **Supabase schema**: create a project → SQL editor → run `supabase/schema.sql`
-   (a fresh DB). It enables `pgvector`, creates the tables (`user_id` → `auth.users`),
-   the `match_commands` / `skill_scores` RPCs, and RLS policies.
-   - Migrating an existing vertical-slice DB instead? Run `supabase/auth.sql`.
+1. **Supabase schema** (versioned migrations under `supabase/migrations/`,
+   applied with the Supabase CLI):
+   ```sh
+   brew install supabase/tap/supabase     # once
+   supabase login                          # once (browser)
+   supabase link --project-ref <your-ref>  # ref is in your project URL
+   supabase db push                        # apply all migrations to remote
+   ```
+   Migrations: `…_init` (pgvector + tables + `match_commands`), `…_auth`
+   (`auth.users` FK + RLS), `…_signatures` (signature grouping + `skill_counts`).
+   - **Adopting migrations on a DB already set up by hand?** Mark the
+     already-applied ones first so they aren't re-run:
+     `supabase migration repair --status applied 20250101000001 20250101000002`,
+     then `supabase db push` (applies only `…_signatures`).
+   - Fresh project: just `supabase db push` (runs all three in order).
 2. **Email login (SMTP + template)** — required for `learn login` to send a code:
    - Configure **custom SMTP** (Supabase → Authentication → SMTP Settings).
      Supabase gates template editing behind custom SMTP, and the built-in sender
