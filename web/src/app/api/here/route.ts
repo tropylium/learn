@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getUserId, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // Commands the user has logged in the current project — powers `learn here`
 // and the contextual shell-hook reminder ("3 slurm commands you logged").
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const user_id = searchParams.get("user_id");
-  const project = searchParams.get("project");
+  const user_id = await getUserId(req);
+  if (!user_id) return unauthorized();
 
-  if (!user_id) {
-    return NextResponse.json({ error: "user_id required" }, { status: 400 });
-  }
+  const { searchParams } = new URL(req.url);
+  const project = searchParams.get("project");
 
   const db = supabaseAdmin();
   let query = db

@@ -15,6 +15,7 @@ function required(name: string): string {
 export const env = {
   supabaseUrl: () => required("SUPABASE_URL"),
   supabaseServiceKey: () => required("SUPABASE_SERVICE_ROLE_KEY"),
+  supabaseAnonKey: () => required("SUPABASE_ANON_KEY"),
   anthropicKey: () => required("ANTHROPIC_API_KEY"),
   openaiKey: () => required("OPENAI_API_KEY"),
 };

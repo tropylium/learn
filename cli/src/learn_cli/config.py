@@ -1,9 +1,8 @@
-"""Local config + context detection for the learn CLI.
+"""Local config, credentials, and context detection for the learn CLI.
 
-For the vertical slice there is no auth yet: we use a hardcoded dev user id so
-the full log -> annotate -> embed -> find loop can be proven end to end. The
-`token`/`user_id` plumbing is here so that swapping in real Supabase auth later
-is a small change, not a rewrite.
+Two files under ~/.config/learn/:
+  config.json  — non-secret settings (api_url)
+  auth.json    — session tokens from `learn login` (chmod 600)
 """
 
 from __future__ import annotations
@@ -16,21 +15,23 @@ from pathlib import Path
 
 CONFIG_DIR = Path(os.environ.get("LEARN_CONFIG_DIR", Path.home() / ".config" / "learn"))
 CONFIG_FILE = CONFIG_DIR / "config.json"
+AUTH_FILE = CONFIG_DIR / "auth.json"
 
 # Default to local Next.js dev server; override with LEARN_API_URL or `learn config`.
 DEFAULT_API_URL = "http://localhost:3000"
 
-# Vertical-slice dev identity. Replaced by real auth in a later milestone.
-DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
 
-
-def load_config() -> dict:
-    if CONFIG_FILE.exists():
+def _read_json(path: Path) -> dict:
+    if path.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text())
+            return json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             return {}
     return {}
+
+
+def load_config() -> dict:
+    return _read_json(CONFIG_FILE)
 
 
 def save_config(data: dict) -> None:
@@ -42,8 +43,27 @@ def api_url() -> str:
     return os.environ.get("LEARN_API_URL") or load_config().get("api_url") or DEFAULT_API_URL
 
 
-def user_id() -> str:
-    return load_config().get("user_id") or DEV_USER_ID
+# --- auth / credentials -----------------------------------------------------
+
+def load_auth() -> dict:
+    return _read_json(AUTH_FILE)
+
+
+def save_auth(data: dict) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    AUTH_FILE.write_text(json.dumps(data, indent=2))
+    try:
+        AUTH_FILE.chmod(0o600)
+    except OSError:
+        pass
+
+
+def clear_auth() -> None:
+    AUTH_FILE.unlink(missing_ok=True)
+
+
+def access_token() -> str | None:
+    return load_auth().get("access_token")
 
 
 def detect_context(cwd: str | None = None) -> dict:

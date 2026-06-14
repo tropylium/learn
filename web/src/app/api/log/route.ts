@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { annotateCommand, embed } from "@/lib/annotate";
 import { computePoints } from "@/lib/scoring";
+import { getUserId, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 interface LogBody {
-  user_id: string;
   command: string;
   exit_code?: number;
   hostname?: string;
@@ -16,15 +16,18 @@ interface LogBody {
 }
 
 export async function POST(req: NextRequest) {
+  const user_id = await getUserId(req);
+  if (!user_id) return unauthorized();
+
   let body: LogBody;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const { user_id, command } = body;
-  if (!user_id || !command?.trim()) {
-    return NextResponse.json({ error: "user_id and command required" }, { status: 400 });
+  const { command } = body;
+  if (!command?.trim()) {
+    return NextResponse.json({ error: "command required" }, { status: 400 });
   }
 
   const db = supabaseAdmin();

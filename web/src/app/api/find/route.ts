@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { embed } from "@/lib/annotate";
+import { getUserId, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -9,13 +10,15 @@ export const maxDuration = 30;
 // the user's own history via the match_commands pgvector RPC. This is the
 // reveal moment — "submit a job that requires a GPU" → the sbatch you ran.
 export async function GET(req: NextRequest) {
+  const user_id = await getUserId(req);
+  if (!user_id) return unauthorized();
+
   const { searchParams } = new URL(req.url);
-  const user_id = searchParams.get("user_id");
   const q = searchParams.get("q");
   const limit = Number(searchParams.get("limit") ?? 5);
 
-  if (!user_id || !q?.trim()) {
-    return NextResponse.json({ error: "user_id and q required" }, { status: 400 });
+  if (!q?.trim()) {
+    return NextResponse.json({ error: "q required" }, { status: 400 });
   }
 
   const queryEmbedding = await embed(q);

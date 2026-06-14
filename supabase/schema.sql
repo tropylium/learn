@@ -1,6 +1,6 @@
--- learn — schema for the vertical slice (run in Supabase SQL editor).
--- No auth yet: a hardcoded dev user id is used by the CLI. RLS is added in the
--- auth milestone; for now the API uses the service-role key server-side only.
+-- learn — canonical schema (run in Supabase SQL editor for a fresh project).
+-- For an existing vertical-slice database, run auth.sql instead to migrate.
+-- user_id references auth.users; RLS is enabled at the bottom.
 
 create extension if not exists vector;
 create extension if not exists "pgcrypto";
@@ -9,7 +9,7 @@ create extension if not exists "pgcrypto";
 -- command_uses row rather than a new commands row.
 create table if not exists commands (
   id            uuid primary key default gen_random_uuid(),
-  user_id       uuid not null,
+  user_id       uuid not null references auth.users(id) on delete cascade,
   command       text not null,
   intent        text,                 -- AI: "Restore a file from a previous commit"
   explanation   text,                 -- AI: longer explanation
@@ -27,7 +27,7 @@ create table if not exists commands (
 create table if not exists command_uses (
   id             uuid primary key default gen_random_uuid(),
   command_id     uuid not null references commands(id) on delete cascade,
-  user_id        uuid not null,
+  user_id        uuid not null references auth.users(id) on delete cascade,
   used_at        timestamptz default now(),
   exit_code      int,
   points_awarded numeric default 0
@@ -81,3 +81,20 @@ as $$
   group by s.skill
   order by xp desc;
 $$;
+
+-- Row-level security. The API uses the service role (bypasses RLS) and scopes
+-- every query by the JWT-verified user_id; these policies are defense in depth.
+alter table commands     enable row level security;
+alter table command_uses enable row level security;
+
+drop policy if exists "own commands" on commands;
+create policy "own commands" on commands
+  for all to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "own command_uses" on command_uses;
+create policy "own command_uses" on command_uses
+  for all to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);

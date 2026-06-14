@@ -1,12 +1,15 @@
-"""learn CLI — vertical slice.
+"""learn CLI.
 
-Commands that prove the core loop:
+Core loop:
   learn log "<cmd>"        log a command -> API annotates + embeds + stores
   learn find "<query>"     semantic recall of a command from your own history
   learn here               commands you've logged in this project/context
   learn score              XP per skill + global
 
-Plus config helpers (login/whoami are stubbed until real auth lands).
+Auth:
+  learn login              email one-time-code sign-in
+  learn logout             forget stored credentials
+  learn whoami             show the signed-in account
 """
 
 from __future__ import annotations
@@ -30,11 +33,116 @@ def _die(msg: str) -> None:
     sys.exit(1)
 
 
+def _try_refresh() -> bool:
+    """Exchange the stored refresh token for a new session. Returns success."""
+    auth = config.load_auth()
+    rt = auth.get("refresh_token")
+    if not rt:
+        return False
+    try:
+        with _client() as c:
+            r = c.post("/api/auth/refresh", json={"refresh_token": rt})
+        if r.status_code != 200:
+            return False
+        data = r.json()
+    except httpx.HTTPError:
+        return False
+    auth.update(
+        access_token=data["access_token"],
+        refresh_token=data["refresh_token"],
+        expires_at=data.get("expires_at"),
+    )
+    config.save_auth(auth)
+    return True
+
+
+def _authed_request(method: str, path: str, **kwargs) -> httpx.Response:
+    """Make a request with the Bearer token, refreshing once on a 401."""
+    token = config.access_token()
+    if not token:
+        _die("not logged in — run `learn login` first")
+
+    try:
+        headers = {"authorization": f"Bearer {token}"}
+        with _client() as c:
+            r = c.request(method, path, headers=headers, **kwargs)
+            if r.status_code == 401 and _try_refresh():
+                headers["authorization"] = f"Bearer {config.access_token()}"
+                r = c.request(method, path, headers=headers, **kwargs)
+        if r.status_code == 401:
+            _die("session expired — run `learn login` again")
+        r.raise_for_status()
+        return r
+    except httpx.HTTPStatusError as e:
+        _die(f"API returned {e.response.status_code}: {e.response.text[:200]}")
+    except httpx.HTTPError as e:
+        _die(f"could not reach API at {config.api_url()}: {e}")
+
+
 @click.group(help=__doc__)
 @click.version_option(package_name="learn")
 def cli() -> None:
     pass
 
+
+# --- auth -------------------------------------------------------------------
+
+@cli.command("login")
+@click.option("--email", default=None, help="Email to sign in with (prompted if omitted).")
+def login_cmd(email: str | None) -> None:
+    """Sign in with a one-time code emailed to you."""
+    email = email or click.prompt("Email")
+    try:
+        with _client() as c:
+            r = c.post("/api/auth/start", json={"email": email})
+        if r.status_code != 200:
+            _die(f"could not send code: {r.json().get('error', r.text[:200])}")
+    except httpx.HTTPError as e:
+        _die(f"could not reach API at {config.api_url()}: {e}")
+
+    click.echo(f"We emailed a 6-digit code to {email}.")
+    code = click.prompt("Code").strip()
+
+    try:
+        with _client() as c:
+            r = c.post("/api/auth/verify", json={"email": email, "token": code})
+        if r.status_code != 200:
+            _die(f"sign-in failed: {r.json().get('error', 'invalid or expired code')}")
+        data = r.json()
+    except httpx.HTTPError as e:
+        _die(f"could not reach API: {e}")
+
+    config.save_auth(
+        {
+            "access_token": data["access_token"],
+            "refresh_token": data["refresh_token"],
+            "expires_at": data.get("expires_at"),
+            "user_id": data.get("user_id"),
+            "email": data.get("email", email),
+        }
+    )
+    click.secho(f"✓ signed in as {data.get('email', email)}", fg="green")
+
+
+@cli.command("logout")
+def logout_cmd() -> None:
+    """Forget stored credentials on this machine."""
+    config.clear_auth()
+    click.secho("✓ logged out", fg="green")
+
+
+@cli.command("whoami")
+def whoami_cmd() -> None:
+    """Show the signed-in account."""
+    auth = config.load_auth()
+    if not auth.get("access_token"):
+        click.secho("not logged in — run `learn login`", fg="yellow")
+        return
+    click.echo(f"signed in as {auth.get('email', '(unknown)')}")
+    click.echo(f"user_id: {auth.get('user_id', '(unknown)')}")
+
+
+# --- core loop --------------------------------------------------------------
 
 @cli.command("log")
 @click.argument("command", nargs=-1, required=True)
@@ -51,22 +159,8 @@ def log_cmd(command: tuple[str, ...], exit_code: int, project: str | None, quiet
     if project:
         ctx["project"] = project
 
-    payload = {
-        "user_id": config.user_id(),
-        "command": cmd_str,
-        "exit_code": exit_code,
-        **ctx,
-    }
-
-    try:
-        with _client() as c:
-            r = c.post("/api/log", json=payload)
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPStatusError as e:
-        _die(f"API returned {e.response.status_code}: {e.response.text[:200]}")
-    except httpx.HTTPError as e:
-        _die(f"could not reach API at {config.api_url()}: {e}")
+    payload = {"command": cmd_str, "exit_code": exit_code, **ctx}
+    data = _authed_request("POST", "/api/log", json=payload).json()
 
     if quiet:
         return
@@ -96,14 +190,9 @@ def find_cmd(query: tuple[str, ...], limit: int) -> None:
     if not q:
         _die("empty query")
 
-    try:
-        with _client() as c:
-            r = c.get("/api/find", params={"user_id": config.user_id(), "q": q, "limit": limit})
-            r.raise_for_status()
-            results = r.json().get("results", [])
-    except httpx.HTTPError as e:
-        _die(f"could not reach API: {e}")
-
+    results = _authed_request("GET", "/api/find", params={"q": q, "limit": limit}).json().get(
+        "results", []
+    )
     if not results:
         click.secho("no matches in your history yet.", fg="yellow")
         return
@@ -123,13 +212,9 @@ def find_cmd(query: tuple[str, ...], limit: int) -> None:
 def here_cmd() -> None:
     """Show commands you've logged in the current project/context."""
     ctx = config.detect_context()
-    try:
-        with _client() as c:
-            r = c.get("/api/here", params={"user_id": config.user_id(), "project": ctx["project"]})
-            r.raise_for_status()
-            results = r.json().get("results", [])
-    except httpx.HTTPError as e:
-        _die(f"could not reach API: {e}")
+    results = _authed_request("GET", "/api/here", params={"project": ctx["project"]}).json().get(
+        "results", []
+    )
 
     click.secho(f"project: {ctx['project']}", bold=True)
     if not results:
@@ -144,14 +229,7 @@ def here_cmd() -> None:
 @cli.command("score")
 def score_cmd() -> None:
     """Show XP per skill and total."""
-    try:
-        with _client() as c:
-            r = c.get("/api/score", params={"user_id": config.user_id()})
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPError as e:
-        _die(f"could not reach API: {e}")
-
+    data = _authed_request("GET", "/api/score").json()
     total = data.get("total_xp", 0)
     skills = data.get("skills", [])
     click.secho(f"Total XP: {total}", bold=True, fg="yellow")
@@ -171,8 +249,9 @@ def config_cmd(api_url_opt: str | None, show: bool) -> None:
         click.secho(f"api_url set to {api_url_opt}", fg="green")
     if show or not api_url_opt:
         click.echo(f"api_url:  {config.api_url()}")
-        click.echo(f"user_id:  {config.user_id()}")
         click.echo(f"config:   {config.CONFIG_FILE}")
+        auth = config.load_auth()
+        click.echo(f"account:  {auth.get('email', '(not logged in)')}")
 
 
 if __name__ == "__main__":

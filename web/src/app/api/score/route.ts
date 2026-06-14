@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getUserId, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // XP per skill + total — powers `learn score` and the dashboard XP bars.
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const user_id = searchParams.get("user_id");
-  if (!user_id) {
-    return NextResponse.json({ error: "user_id required" }, { status: 400 });
-  }
+  const user_id = await getUserId(req);
+  if (!user_id) return unauthorized();
 
   const db = supabaseAdmin();
   const { data, error } = await db.rpc("skill_scores", { p_user_id: user_id });
