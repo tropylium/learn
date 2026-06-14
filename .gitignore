@@ -1,0 +1,17 @@
+# Node / Next
+node_modules/
+web/.next/
+web/out/
+web/.env*.local
+
+# Python / uv
+cli/.venv/
+__pycache__/
+*.pyc
+
+# Env / secrets
+.env
+.env.local
+
+# OS
+.DS_Store
