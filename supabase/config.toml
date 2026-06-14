@@ -4,5 +4,6 @@
 project_id = "learn"
 
 [db]
-# Postgres major version of your Supabase project (16 is the current default).
-major_version = 16
+# Postgres major version. Supabase hosted uses 15 or 17 (not 16). Only affects
+# local `supabase start`; remote db push/repair just need a valid value here.
+major_version = 17
