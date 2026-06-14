@@ -35,9 +35,37 @@ supabase/   schema.sql — run in the Supabase SQL editor
    The CLI talks to `http://localhost:3000` by default (override with
    `LEARN_API_URL` or `uv run learn config --api-url ...`).
 
+## Deploy (backend on Vercel)
+
+The backend (`web/`) deploys to Vercel, wired to GitHub for **commit-based
+auto-deploy**: every push to `main` ships a new deployment.
+
+One-time setup in the Vercel dashboard:
+
+1. **Add New → Project → Import** `tropylium/learn`.
+2. **⚠️ Set Root Directory = `web`.** The Next.js app lives in `web/`, not the
+   repo root — without this the build fails. (Expand *Root Directory* → Edit → `web`.)
+3. Framework preset auto-detects **Next.js**; leave build/output defaults.
+4. Add the same env vars as `web/.env.local` (copy the values):
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
+   Set them for **Production** (and Preview if you want PR deploys to work).
+5. **Deploy.** From then on, `git push` to `main` auto-deploys.
+
+Notes:
+- The build succeeds even if an env var is missing — env access is lazy/runtime,
+  so a misconfigured key surfaces as a request-time error, not a failed build.
+- Normal dev loop stays local: run `npm run dev` and point the CLI at
+  `http://localhost:3000`. Only push to `main` when you want the deployed
+  backend to update.
+- To test the CLI against the deployed backend:
+  `learn config --api-url https://<your-deployment>.vercel.app`
+  (switch back with `--api-url http://localhost:3000`).
+
 ## Next milestones
 
-- Real auth (Supabase OAuth + CLI `learn login`)
-- Frontend dashboard (XP bars, recent commands, leaderboard)
-- Shell hook (`eval "$(learn shell-init)"`) for contextual reminders
-- Stripe Pro tier
+- **Auth + per-user rows** (next): email-OTP CLI login (`learn login`) +
+  Supabase RLS so each user only sees their own commands.
+- Installer hosting: serve `dist/install.sh` from the web app (`curl … | sh`).
+- Shell hook (`eval "$(learn shell-init)"`) for auto-logging + contextual reminders.
+- Stripe Pro tier.
+- (Deprioritized) Frontend dashboard — the CLI is the product.
