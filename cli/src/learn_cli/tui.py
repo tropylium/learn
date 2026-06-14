@@ -36,8 +36,11 @@ _STYLE = Style.from_dict(
         "sel": "reverse",
         "dim": "#888888",
         "tag": "#5f8700",
-        "here": "#5f8700",
-        "scope": "#888888",
+        # one color per context source — applied to both command and its label
+        "scope_cwd": "#5fd700 bold",   # here (same directory)
+        "scope_project": "#5fafff",    # same project
+        "scope_host": "#ffaf00",       # same machine
+        "scope_global": "#9e9e9e",     # elsewhere
         "status": "#888888 italic",
         "keys": "#888888",
         "key": "bold #5fd7ff",
@@ -148,17 +151,18 @@ def run_find_tui() -> tuple[str, str] | None:
 
     VISIBLE = 8  # results shown at once; the list scrolls to keep selection in view
 
-    def scope_label(r: dict) -> tuple[str, str]:
-        """(style, text) showing where a command is relative to current context."""
+    def scope_info(r: dict) -> tuple[str, str]:
+        """(style-class, label) for a result's context source. The same class is
+        applied to the command so its origin is visible at a glance."""
         scope = r.get("scope")
         if scope == "cwd":
-            return ("class:here", "● here")
+            return ("class:scope_cwd", "● here")
         if scope == "project":
-            return ("class:here", f"● {r.get('project') or 'this project'}")
+            return ("class:scope_project", f"● {r.get('project') or 'this project'}")
         if scope == "host":
-            return ("class:scope", "● this machine")
+            return ("class:scope_host", "● this machine")
         where = r.get("project") or r.get("hostname") or "elsewhere"
-        return ("class:scope", f"· {where}")
+        return ("class:scope_global", f"· {where}")
 
     def render():
         if not results:
@@ -172,11 +176,12 @@ def run_find_tui() -> tuple[str, str] | None:
             out.append(("class:dim", f"  ↑ {start} more\n"))
         for i in range(start, end):
             r = results[i]
-            cur = "class:sel" if i == sel else ""
-            arrow = "❯ " if i == sel else "  "
-            out.append((cur, f"{arrow}{r['command']}"))
-            sc_style, sc_text = scope_label(r)
-            out.append((sc_style, f"  {sc_text}"))
+            style, sc_text = scope_info(r)
+            sel_now = i == sel
+            cmd_style = f"{style} class:sel" if sel_now else style
+            arrow = "❯ " if sel_now else "  "
+            out.append((cmd_style, f"{arrow}{r['command']}"))
+            out.append((style, f"  {sc_text}"))
             if r.get("_src") == "semantic":
                 out.append(("class:tag", " ~semantic"))
             out.append(("", "\n"))
