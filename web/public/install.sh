@@ -77,11 +77,16 @@ install_shell_integration
 
 echo
 info "Done — 'learn' is installed."
-command -v learn >/dev/null 2>&1 || warn "Open a new terminal so 'learn' is on your PATH."
-echo "  (open a new terminal to activate shell integration)"
 echo
-echo "  Try:"
+warn "RESTART YOUR TERMINAL (or run 'source ${rc:-your shell rc}') for changes to take effect."
+echo "  Shell integration only loads in new shells — until then 'learn log' can't"
+echo "  see your current session's commands."
+echo
+echo "  Then try:"
 echo "    learn login"
-echo "    learn log \"git rebase -i HEAD~3\""
-echo "    learn find \"rewrite my last few commits\""
+echo "    <run any command>"
+echo "    learn log                       # logs that command"
+echo "    learn find                      # search your history"
+echo
+echo "  To remove later:  learn uninstall"
 echo
