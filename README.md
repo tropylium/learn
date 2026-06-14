@@ -4,36 +4,47 @@ Teach yourself the terminal by reinforcing the commands you've actually used.
 AI annotates each command, scores your learning, and lets you recall commands
 semantically (`learn find "how do I pull a file from an old commit"`).
 
-This repo currently implements the **vertical slice**: the core
-log → annotate → embed → score → semantic-recall loop, with a hardcoded dev
-user (no auth yet). See `CLAUDE.md` for the full design.
+The core loop (log → annotate → embed → score → semantic-recall) works
+end-to-end, with **email-OTP auth** and per-user rows behind Supabase RLS. See
+`CLAUDE.md` for the full design.
 
 ## Layout
 
 ```
-web/        Next.js app + API routes (the AI proxy + Supabase writer)
-cli/        Python CLI (`learn log`, `learn find`, `learn here`, `learn score`)
-supabase/   schema.sql — run in the Supabase SQL editor
+web/             Next.js app + API routes (AI proxy, auth, Supabase writer)
+cli/             Python CLI (login, log, find, here, score)
+supabase/        schema.sql (fresh DB) · auth.sql (migrate an existing DB)
+scripts/ dist/   build-installer.sh -> self-contained dist/install.sh
 ```
 
-## Setup (vertical slice)
+## Setup
 
-1. **Supabase**: create a project, open the SQL editor, run `supabase/schema.sql`
-   (enables `pgvector`, creates tables + the `match_commands` / `skill_scores` RPCs).
-2. **Web env**: `cp web/.env.example web/.env.local` and fill in Supabase URL +
-   service-role key, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
-3. **Seed the dev user**: in the SQL editor, the dev user_id is
-   `00000000-0000-0000-0000-000000000001` — no row needed (no FK to auth in v1).
+1. **Supabase schema**: create a project → SQL editor → run `supabase/schema.sql`
+   (a fresh DB). It enables `pgvector`, creates the tables (`user_id` → `auth.users`),
+   the `match_commands` / `skill_scores` RPCs, and RLS policies.
+   - Migrating an existing vertical-slice DB instead? Run `supabase/auth.sql`.
+2. **Email login (SMTP + template)** — required for `learn login` to send a code:
+   - Configure **custom SMTP** (Supabase → Authentication → SMTP Settings).
+     Supabase gates template editing behind custom SMTP, and the built-in sender
+     is rate-limited. **Resend** free tier is quickest: create an API key, then in
+     Supabase set Host `smtp.resend.com`, Port `465`, Username `resend`, Password
+     `re_…`, Sender `onboarding@resend.dev`.
+   - Edit **Authentication → Email Templates → Magic Link** to send a *code*, not
+     a link — the body must include `{{ .Token }}` (default uses `{{ .ConfirmationURL }}`).
+3. **Web env**: `cp web/.env.example web/.env.local` and fill in `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ANTHROPIC_API_KEY`,
+   `OPENAI_API_KEY`.
 4. **Run the web app**: `cd web && npm run dev` (http://localhost:3000).
 5. **Run the CLI**: `cd cli && uv sync`, then:
    ```
+   uv run learn login            # email -> paste 6-digit code
    uv run learn log "grep -rEn 'TODO' --include='*.py' ."
    uv run learn find "search python files for a pattern with line numbers"
    uv run learn score
-   uv run learn here
    ```
    The CLI talks to `http://localhost:3000` by default (override with
-   `LEARN_API_URL` or `uv run learn config --api-url ...`).
+   `LEARN_API_URL` or `uv run learn config --api-url ...`). Tokens are stored in
+   `~/.config/learn/auth.json`.
 
 ## Deploy (backend on Vercel)
 
@@ -46,9 +57,9 @@ One-time setup in the Vercel dashboard:
 2. **⚠️ Set Root Directory = `web`.** The Next.js app lives in `web/`, not the
    repo root — without this the build fails. (Expand *Root Directory* → Edit → `web`.)
 3. Framework preset auto-detects **Next.js**; leave build/output defaults.
-4. Add the same env vars as `web/.env.local` (copy the values):
-   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
-   Set them for **Production** (and Preview if you want PR deploys to work).
+4. Add the same env vars as `web/.env.local` (copy the values): `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ANTHROPIC_API_KEY`,
+   `OPENAI_API_KEY`. Set them for **Production** (and Preview for PR deploys).
 5. **Deploy.** From then on, `git push` to `main` auto-deploys.
 
 Notes:
@@ -63,9 +74,9 @@ Notes:
 
 ## Next milestones
 
-- **Auth + per-user rows** (next): email-OTP CLI login (`learn login`) +
-  Supabase RLS so each user only sees their own commands.
 - Installer hosting: serve `dist/install.sh` from the web app (`curl … | sh`).
 - Shell hook (`eval "$(learn shell-init)"`) for auto-logging + contextual reminders.
 - Stripe Pro tier.
 - (Deprioritized) Frontend dashboard — the CLI is the product.
+
+Done: core log/find/here/score loop · Vercel deploy · email-OTP auth + RLS.
