@@ -46,21 +46,17 @@ learn() {
 """
 
 _BASH = r"""
-# learn shell integration (bash) — best effort via DEBUG trap
-__learn_hist=()
-__learn_record() {
-  local c="$BASH_COMMAND"
-  case "$c" in
-    learn|learn\ *|__learn_*) return ;;
-  esac
-  __learn_hist+=("$c")
-  (( ${#__learn_hist[@]} > 50 )) && __learn_hist=("${__learn_hist[@]: -50}")
-}
-trap '__learn_record' DEBUG
+# learn shell integration (bash)
+# `learn log` reads this session's command history via the `history` builtin.
+# Unlike a DEBUG trap, the history list excludes prompt machinery (e.g. a
+# PROMPT_COMMAND that sets the terminal title), so it never logs those.
 learn() {
   if [[ "$1" == "log" ]]; then
-    local IFS=$'\n'
-    LEARN_SESSION_HISTORY="${__learn_hist[*]}" command learn "$@"
+    local _lh
+    _lh=$(builtin history 50 2>/dev/null \
+          | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//' \
+          | grep -vE '^[[:space:]]*learn([[:space:]]|$)')
+    LEARN_SESSION_HISTORY="$_lh" command learn "$@"
   else
     command learn "$@"
   fi
