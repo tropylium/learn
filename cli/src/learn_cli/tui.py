@@ -119,7 +119,7 @@ def run_find_tui() -> tuple[str, str] | None:
             await asyncio.sleep(SUBSTRING_DEBOUNCE)
             status["msg"] = "searching…"
             app.invalidate()
-            res = await _get("/api/search", query, 8)
+            res = await _get("/api/search", query, 25)
             for r in res:
                 r["_src"] = "match"
             _merge(res, replace=True)
@@ -127,7 +127,7 @@ def run_find_tui() -> tuple[str, str] | None:
 
         async def semantic() -> None:
             await asyncio.sleep(SEMANTIC_DEBOUNCE)
-            res = await _get("/api/find", query, 5)
+            res = await _get("/api/find", query, 10)
             for r in res:
                 r["_src"] = "semantic"
             _merge(res, replace=False)
@@ -142,19 +142,30 @@ def run_find_tui() -> tuple[str, str] | None:
 
     input_buffer.on_text_changed += on_change
 
+    VISIBLE = 8  # results shown at once; the list scrolls to keep selection in view
+
     def render():
         if not results:
             return [("class:dim", "  (no matches yet)")]
+        n = len(results)
+        sel = selected["i"]
+        start = max(0, min(sel - VISIBLE // 2, n - VISIBLE))
+        end = min(n, start + VISIBLE)
         out: list[tuple[str, str]] = []
-        for i, r in enumerate(results):
-            cur = "class:sel" if i == selected["i"] else ""
-            arrow = "❯ " if i == selected["i"] else "  "
+        if start > 0:
+            out.append(("class:dim", f"  ↑ {start} more\n"))
+        for i in range(start, end):
+            r = results[i]
+            cur = "class:sel" if i == sel else ""
+            arrow = "❯ " if i == sel else "  "
             out.append((cur, f"{arrow}{r['command']}"))
             if r.get("_src") == "semantic":
                 out.append(("class:tag", "  ~semantic"))
             out.append(("", "\n"))
             if r.get("intent"):
                 out.append(("class:dim", f"    {r['intent']}\n"))
+        if end < n:
+            out.append(("class:dim", f"  ↓ {n - end} more\n"))
         return out
 
     def footer():
@@ -213,7 +224,7 @@ def run_find_tui() -> tuple[str, str] | None:
                 ]
             ),
             Window(height=1, char="─", style="class:dim"),
-            Window(FormattedTextControl(render), height=Dimension(min=1, max=14)),
+            Window(FormattedTextControl(render), height=Dimension(min=1, max=18)),
             Window(FormattedTextControl(lambda: [("class:status", " " + status["msg"])]), height=1),
             Window(FormattedTextControl(footer), height=1),
         ]
