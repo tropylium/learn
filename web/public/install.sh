@@ -36,9 +36,11 @@ if ! command -v uv >/dev/null 2>&1; then
   command -v uv >/dev/null 2>&1 || err "uv install failed; see https://docs.astral.sh/uv/"
 fi
 
-# 2. install the learn CLI from the public repo (isolated env, placed on PATH)
+# 2. install (or update) the learn CLI from the public repo (isolated env, on PATH).
+#    --reinstall implies --refresh, so re-running this script re-fetches the latest
+#    commit on $REF rather than serving uv's cached git resolution.
 info "Installing the 'learn' CLI from $REPO (@$REF) …"
-uv tool install --force "git+$REPO@$REF#subdirectory=cli"
+uv tool install --force --reinstall "git+$REPO@$REF#subdirectory=cli"
 uv tool update-shell >/dev/null 2>&1 || true
 
 # 3. point the CLI at the API
