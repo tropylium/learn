@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { annotateCommand, embed } from "@/lib/annotate";
-import { computePoints } from "@/lib/scoring";
 import { getUserId, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -9,6 +8,7 @@ export const maxDuration = 30;
 
 interface LogBody {
   command: string;
+  signature?: string; // normalized program+subcommand+flags; computed by the CLI
   exit_code?: number;
   hostname?: string;
   project?: string;
@@ -29,42 +29,44 @@ export async function POST(req: NextRequest) {
   if (!command?.trim()) {
     return NextResponse.json({ error: "command required" }, { status: 400 });
   }
+  // Fall back to the raw command if the client didn't send a signature.
+  const signature = body.signature?.trim() || command.trim();
 
   const db = supabaseAdmin();
 
-  // Is this command already known for this user? (exact-string match for v1;
-  // argument-normalized keys are a documented future improvement.)
+  // Group by signature: `git commit -m "a"` and `git commit -m "b"` are one
+  // thing used twice. The stored `command` is the most recent literal form.
   const { data: existing, error: selErr } = await db
     .from("commands")
-    .select("id, complexity, skills, intent")
+    .select("id, skills, intent")
     .eq("user_id", user_id)
-    .eq("command", command)
+    .eq("signature", signature)
     .maybeSingle();
   if (selErr) {
     return NextResponse.json({ error: selErr.message }, { status: 500 });
   }
 
   let commandId: string;
-  let complexity: number;
   let intent: string;
   let skills: string[];
 
   if (existing) {
     commandId = existing.id;
-    complexity = existing.complexity ?? 1;
     intent = existing.intent ?? "";
     skills = existing.skills ?? [];
+    // Refresh the displayed literal command to the latest invocation.
+    await db.from("commands").update({ command }).eq("id", commandId);
   } else {
-    // New command for this user: annotate + embed, then store.
+    // New signature for this user: annotate + embed once, then store.
     const annotation = await annotateCommand(command);
-    const intentForEmbedding = `${annotation.intent}\n${command}`;
-    const embedding = await embed(intentForEmbedding);
+    const embedding = await embed(`${annotation.intent}\n${command}`);
 
     const { data: inserted, error: insErr } = await db
       .from("commands")
       .insert({
         user_id,
         command,
+        signature,
         intent: annotation.intent,
         explanation: annotation.explanation,
         complexity: annotation.complexity,
@@ -80,46 +82,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: insErr.message }, { status: 500 });
     }
     commandId = inserted.id;
-    complexity = annotation.complexity;
     intent = annotation.intent;
     skills = annotation.skills;
   }
 
-  // Count prior uses and find the most recent use, for scoring.
-  const { count: priorUses } = await db
-    .from("command_uses")
-    .select("id", { count: "exact", head: true })
-    .eq("command_id", commandId);
-
-  const { data: lastUse } = await db
-    .from("command_uses")
-    .select("used_at")
-    .eq("command_id", commandId)
-    .order("used_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const hoursSinceLast = lastUse
-    ? (Date.now() - new Date(lastUse.used_at).getTime()) / 3_600_000
-    : null;
-
-  const points = computePoints(complexity, priorUses ?? 0, hoursSinceLast);
-
+  // Record this use (simple count-based model — no scoring weights).
   const { error: useErr } = await db.from("command_uses").insert({
     command_id: commandId,
     user_id,
     exit_code: body.exit_code ?? 0,
-    points_awarded: points,
   });
   if (useErr) {
     return NextResponse.json({ error: useErr.message }, { status: 500 });
   }
 
+  const { count: timesUsed } = await db
+    .from("command_uses")
+    .select("id", { count: "exact", head: true })
+    .eq("command_id", commandId);
+
   return NextResponse.json({
     intent,
     skills,
-    complexity,
-    points_awarded: points,
+    times_used: timesUsed ?? 1,
     is_new: !existing,
   });
 }

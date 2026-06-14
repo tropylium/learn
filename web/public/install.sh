@@ -50,9 +50,35 @@ cat > "$CONFIG_DIR/config.json" <<EOF
 EOF
 info "API URL set to $API_URL  ($CONFIG_DIR/config.json)"
 
+# 4. shell integration — lets `learn log` capture the current session's last
+#    command. Adds a guarded block to your rc. Opt out with LEARN_NO_SHELL_INIT=1.
+install_shell_integration() {
+  [ -n "${LEARN_NO_SHELL_INIT:-}" ] && { info "Skipping shell integration (LEARN_NO_SHELL_INIT set)."; return; }
+  rc=""
+  case "$(basename "${SHELL:-}")" in
+    zsh)  rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    bash) rc="$HOME/.bashrc" ;;
+    *)    warn "Unrecognized shell ($SHELL); add 'eval \"\$(learn shell-init)\"' to your rc manually."; return ;;
+  esac
+  marker="# >>> learn shell integration >>>"
+  if [ -f "$rc" ] && grep -qF "$marker" "$rc"; then
+    info "Shell integration already present in $rc"
+    return
+  fi
+  {
+    printf '\n%s\n' "$marker"
+    printf '%s\n' 'export PATH="$HOME/.local/bin:$PATH"'
+    printf '%s\n' 'command -v learn >/dev/null 2>&1 && eval "$(learn shell-init)"'
+    printf '%s\n' "# <<< learn shell integration <<<"
+  } >> "$rc"
+  info "Added shell integration to $rc"
+}
+install_shell_integration
+
 echo
 info "Done — 'learn' is installed."
 command -v learn >/dev/null 2>&1 || warn "Open a new terminal so 'learn' is on your PATH."
+echo "  (open a new terminal to activate shell integration)"
 echo
 echo "  Try:"
 echo "    learn login"

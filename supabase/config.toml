@@ -1,0 +1,9 @@
+# Supabase CLI project config. `project_id` is a local label; the actual remote
+# project is chosen by `supabase link --project-ref <ref>`.
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+project_id = "learn"
+
+[db]
+# Postgres major version. Supabase hosted uses 15 or 17 (not 16). Only affects
+# local `supabase start`; remote db push/repair just need a valid value here.
+major_version = 17

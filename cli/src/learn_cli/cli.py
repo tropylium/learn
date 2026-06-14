@@ -19,7 +19,8 @@ import sys
 import click
 import httpx
 
-from . import config
+from . import config, shell
+from .signature import command_signature
 
 TIMEOUT = httpx.Timeout(30.0)
 
@@ -145,67 +146,73 @@ def whoami_cmd() -> None:
 # --- core loop --------------------------------------------------------------
 
 @cli.command("log")
-@click.argument("command", nargs=-1, required=True)
-@click.option("--exit-code", type=int, default=0, help="Exit code of the command.")
+@click.argument("command", nargs=-1, required=False)
+@click.option("-n", "num", type=int, default=1,
+              help="With no command given, log the last N shell commands.")
+@click.option("--exit-code", type=int, default=0,
+              help="Exit code (only meaningful with an explicit command).")
 @click.option("--project", default=None, help="Override detected project name.")
-@click.option("--quiet", "-q", is_flag=True, help="Suppress annotation output (for shell hooks).")
-def log_cmd(command: tuple[str, ...], exit_code: int, project: str | None, quiet: bool) -> None:
-    """Log a command. The API annotates, embeds, scores, and stores it."""
-    cmd_str = " ".join(command).strip()
-    if not cmd_str:
-        _die("empty command")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress output (for shell hooks).")
+def log_cmd(command: tuple[str, ...], num: int, exit_code: int,
+            project: str | None, quiet: bool) -> None:
+    """Log a command. With no argument, logs your most recent shell command(s).
+
+    \b
+      learn log                       # log your last command
+      learn log -n 5                  # log your last 5 commands
+      learn log "git rebase -i HEAD~3"
+    """
+    if command:
+        cmds = [" ".join(command).strip()]
+    else:
+        cmds = shell.recent_commands(num)
+        if not cmds:
+            _die('no recent shell commands found (history may not be flushed; '
+                 'try `learn log "<cmd>"`)')
 
     ctx = config.detect_context()
     if project:
         ctx["project"] = project
 
-    payload = {"command": cmd_str, "exit_code": exit_code, **ctx}
-    data = _authed_request("POST", "/api/log", json=payload).json()
+    for cmd_str in cmds:
+        if not cmd_str:
+            continue
+        payload = {
+            "command": cmd_str,
+            "signature": command_signature(cmd_str),
+            "exit_code": exit_code,
+            **ctx,
+        }
+        data = _authed_request("POST", "/api/log", json=payload).json()
+        if not quiet:
+            _print_logged(cmd_str, data)
 
-    if quiet:
-        return
 
-    intent = data.get("intent", "")
-    skills = data.get("skills", []) or []
-    complexity = data.get("complexity")
-    points = data.get("points_awarded")
-
-    click.secho(f"✓ logged: {cmd_str}", fg="green")
-    if intent:
-        click.echo(f"  intent:     {intent}")
+def _print_logged(cmd_str: str, data: dict) -> None:
+    times = data.get("times_used")
+    suffix = f"  (used {times}×)" if times else ""
+    click.secho(f"✓ logged: {cmd_str}{suffix}", fg="green")
+    if data.get("intent"):
+        click.echo(f"  intent: {data['intent']}")
+    skills = data.get("skills") or []
     if skills:
-        click.echo(f"  skills:     {', '.join(skills)}")
-    if complexity is not None:
-        click.echo(f"  complexity: {complexity}/5")
-    if points is not None:
-        click.secho(f"  +{points} XP", fg="yellow")
+        click.echo(f"  skills: {', '.join(skills)}")
 
 
 @cli.command("find")
-@click.argument("query", nargs=-1, required=True)
-@click.option("--limit", "-n", type=int, default=5, help="Max results.")
-def find_cmd(query: tuple[str, ...], limit: int) -> None:
-    """Semantic recall: describe what you want, get back a command you've used."""
-    q = " ".join(query).strip()
-    if not q:
-        _die("empty query")
+def find_cmd() -> None:
+    """Interactively search your history — substring matches as you type, then
+    semantic matches. Up/Down to move, Enter to pick, Esc to cancel."""
+    from .tui import run_find_tui
 
-    results = _authed_request("GET", "/api/find", params={"q": q, "limit": limit}).json().get(
-        "results", []
-    )
-    if not results:
-        click.secho("no matches in your history yet.", fg="yellow")
-        return
-
-    for i, res in enumerate(results, 1):
-        sim = res.get("similarity")
-        sim_str = f"  ({sim:.0%} match)" if isinstance(sim, (int, float)) else ""
-        click.secho(f"{i}. {res['command']}{sim_str}", fg="cyan", bold=True)
-        if res.get("intent"):
-            click.echo(f"   {res['intent']}")
-        if res.get("explanation"):
-            click.echo(f"   {res['explanation']}")
-        click.echo()
+    try:
+        chosen = run_find_tui()
+    except SystemExit as e:
+        _die(str(e))
+    except Exception as e:  # e.g. no TTY available
+        _die(f"interactive find unavailable ({e}). Are you in a terminal?")
+    if chosen:
+        click.echo(chosen)
 
 
 @cli.command("here")
@@ -228,13 +235,28 @@ def here_cmd() -> None:
 
 @cli.command("score")
 def score_cmd() -> None:
-    """Show XP per skill and total."""
+    """Show how many commands you've logged, per skill and total."""
     data = _authed_request("GET", "/api/score").json()
-    total = data.get("total_xp", 0)
+    total = data.get("total_uses", 0)
     skills = data.get("skills", [])
-    click.secho(f"Total XP: {total}", bold=True, fg="yellow")
+    click.secho(f"Commands logged: {total}", bold=True, fg="yellow")
     for s in skills:
-        click.echo(f"  {s['skill']:<24} {s['xp']:>6} XP")
+        click.echo(f"  {s['skill']:<24} {s['uses']:>5}×")
+
+
+@cli.command("shell-init")
+@click.option("--shell", "shell_name", default=None,
+              help="Target shell: zsh or bash (auto-detected from $SHELL).")
+def shell_init_cmd(shell_name: str | None) -> None:
+    """Print shell integration. Add `eval "$(learn shell-init)"` to your rc
+    (the installer does this automatically) so `learn log` can capture the
+    current session's last command."""
+    from .shellinit import render
+
+    try:
+        click.echo(render(shell_name))
+    except ValueError as e:
+        _die(str(e))
 
 
 @cli.command("config")
